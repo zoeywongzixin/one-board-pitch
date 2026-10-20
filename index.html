@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>One Board · Pitch</title>
+<meta name="description" content="One Board by SyncWave Solutions: announcements that update your timetable.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #FAFAF9;
+    --surface: #FFFFFF;
+    --ink: #0F172A;
+    --muted: #475569;
+    --faint: #94A3B8;
+    --line: #E2E8F0;
+    --accent: #2563EB;
+    --accent-soft: #EFF4FF;
+    --red: #DC2626;
+    --red-soft: #FEF2F2;
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --dur: 480ms;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* ---------- Stage: fixed 1920x1080 canvas, scaled by JS to fit ---------- */
+  .deck {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 1920px; height: 1080px;
+    transform-origin: center center;
+    transform: translate(-50%, -50%) scale(var(--scale, 0.5));
+  }
+  .slide {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 110px 160px 130px;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateX(56px);
+    transition: opacity var(--dur) var(--ease-out),
+                transform var(--dur) var(--ease-out),
+                visibility 0s linear var(--dur);
+  }
+  .slide.past { transform: translateX(-56px); }
+  .slide.active {
+    opacity: 1; visibility: visible; transform: none;
+    transition: opacity var(--dur) var(--ease-out),
+                transform var(--dur) var(--ease-out),
+                visibility 0s;
+  }
+  /* staggered entrance for items inside the current slide */
+  .r {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 200ms ease-out, transform 200ms ease-out;
+  }
+  .active .r {
+    opacity: 1; transform: none;
+    transition: opacity 520ms var(--ease-out), transform 520ms var(--ease-out);
+    transition-delay: calc(120ms + var(--i, 0) * 70ms);
+  }
+  .notes { display: none; }
+
+  /* ---------- Type ---------- */
+  h1.title {
+    font-size: 220px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.95;
+  }
+  .subtitle { font-size: 60px; font-weight: 500; color: var(--muted); letter-spacing: -0.02em; margin-top: 40px; }
+  h2 { font-size: 92px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.05; }
+  .lead { font-size: 44px; color: var(--muted); margin-top: 28px; line-height: 1.3; max-width: 1500px; }
+  .accent { color: var(--accent); }
+
+  /* ---------- Slide 1 ---------- */
+  .s-title { justify-content: center; }
+  .logo { width: 120px; height: 120px; margin-bottom: 56px; }
+  .s-title .foot {
+    position: absolute; left: 160px; bottom: 96px;
+    font-size: 30px; color: var(--muted); font-weight: 500; letter-spacing: 0.01em;
+  }
+  .s-title .bar { width: 160px; height: 10px; border-radius: 10px; background: var(--accent); margin-top: 56px; }
+
+  /* ---------- Slide 2 ---------- */
+  .flow { display: flex; align-items: center; gap: 40px; margin-top: 72px; }
+  .box {
+    flex: 0 0 600px;
+    display: flex; align-items: center; gap: 32px;
+    background: var(--surface); border: 2px solid var(--line); border-radius: 32px;
+    padding: 40px 44px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 12px 32px -12px rgba(15,23,42,.12);
+  }
+  .box .emo { font-size: 76px; line-height: 1; }
+  .box .lbl { font-size: 40px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
+  .box.to { border-color: var(--accent); background: var(--accent-soft); }
+  .arrow { width: 160px; height: 48px; flex: 0 0 auto; color: var(--accent); }
+  .tt {
+    margin-top: 64px; align-self: flex-start;
+    display: flex; align-items: center; gap: 36px;
+    background: var(--surface); border: 2px solid var(--line); border-left: 10px solid var(--red);
+    border-radius: 24px; padding: 30px 44px;
+  }
+  .tt .day { font-size: 28px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+  .tt .row { font-size: 44px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+  .tt .sep { color: var(--faint); margin: 0 .25em; }
+  .strike { position: relative; color: var(--red); }
+  .strike::after {
+    content: ""; position: absolute; left: -4%; right: -4%; top: 52%;
+    height: 5px; border-radius: 5px; background: var(--red);
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform 160ms ease-out;
+  }
+  .active .strike::after { transform: scaleX(1); transition: transform 420ms var(--ease-out) 900ms; }
+  .tag {
+    font-size: 28px; font-weight: 800; letter-spacing: .1em;
+    color: var(--red); background: var(--red-soft); border: 2px solid #FECACA;
+    padding: 10px 20px; border-radius: 999px;
+    opacity: 0; transform: scale(.92);
+    transition: opacity 160ms ease-out, transform 160ms ease-out;
+  }
+  .active .tag { opacity: 1; transform: none; transition: opacity 360ms var(--ease-out) 1200ms, transform 360ms var(--ease-out) 1200ms; }
+
+  /* ---------- Slide 3 ---------- */
+  .why { display: grid; grid-template-columns: 1fr 520px; gap: 80px; align-items: center; margin-top: 64px; }
+  .rows { list-style: none; display: grid; gap: 22px; }
+  .rows li { display: flex; align-items: center; gap: 32px; font-size: 44px; font-weight: 600; letter-spacing: -0.01em; }
+  .ico {
+    width: 84px; height: 84px; flex: 0 0 84px; border-radius: 22px;
+    background: var(--surface); border: 2px solid var(--line);
+    display: grid; place-items: center; font-size: 44px;
+  }
+  .chips { position: relative; height: 460px; }
+  .chip {
+    position: absolute; font-size: 32px; font-weight: 600; color: var(--muted);
+    background: #F1F5F9; border: 2px solid var(--line); border-radius: 999px; padding: 16px 30px;
+    white-space: nowrap;
+  }
+  .chip:nth-child(1) { left: 20px;  top: 30px;  rotate: -6deg; }
+  .chip:nth-child(2) { left: 230px; top: 140px; rotate: 5deg; }
+  .chip:nth-child(3) { left: 0;     top: 270px; rotate: 3deg; }
+  .chip:nth-child(4) { left: 190px; top: 370px; rotate: -4deg; }
+
+  /* ---------- Slide 4 ---------- */
+  .obj {
+    list-style: none; margin-top: 72px;
+    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, auto);
+    grid-auto-flow: column; gap: 56px 96px;
+  }
+  .obj li { display: flex; align-items: center; gap: 36px; font-size: 44px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
+  .num {
+    width: 88px; height: 88px; flex: 0 0 88px; border-radius: 50%;
+    background: var(--accent); color: #fff; font-size: 40px; font-weight: 800;
+    display: grid; place-items: center;
+  }
+
+  /* ---------- Slide 5 ---------- */
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-top: 64px; }
+  .card {
+    background: var(--surface); border: 2px solid var(--line); border-radius: 32px; padding: 48px 48px 40px;
+    box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 12px 32px -14px rgba(15,23,42,.12);
+  }
+  .card .emo { font-size: 72px; line-height: 1; }
+  .card h3 { font-size: 52px; font-weight: 800; letter-spacing: -0.02em; margin: 24px 0 20px; }
+  .card ul { list-style: none; }
+  .card li { font-size: 32px; color: var(--muted); padding: 16px 0; border-top: 2px solid var(--line); line-height: 1.25; }
+  .pills { display: flex; gap: 24px; margin-top: 48px; flex-wrap: wrap; }
+  .pill {
+    font-size: 30px; font-weight: 600; padding: 16px 30px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); border: 2px solid #C7D7FE;
+  }
+  .pill.out { background: #F1F5F9; color: var(--muted); border-color: var(--line); }
+
+  /* ---------- Slide 6 ---------- */
+  .s-close { align-items: center; text-align: center; padding-left: 80px; padding-right: 80px; }
+  .s-close .big { font-size: 92px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.25; white-space: nowrap; }
+  .s-close .big .muted { color: var(--muted); font-weight: 700; }
+  .s-close .thanks { font-size: 36px; color: var(--muted); margin-top: 80px; font-weight: 500; }
+  .underline { position: relative; white-space: nowrap; }
+  .underline::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 12px; border-radius: 12px;
+    background: var(--accent); opacity: .18;
+    transform: scaleX(0); transform-origin: left center;
+    transition: transform 160ms ease-out;
+  }
+  .active .underline::after { transform: scaleX(1); transition: transform 600ms var(--ease-out) 700ms; }
+
+  /* ---------- Presenter chrome (outside the stage) ---------- */
+  .progress { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(15,23,42,.06); z-index: 5; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 400ms var(--ease-out); }
+  .counter {
+    position: fixed; right: 20px; bottom: 14px; z-index: 5;
+    font-size: 14px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums;
+  }
+  .timer {
+    position: fixed; top: 14px; right: 16px; z-index: 6;
+    font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--muted); background: rgba(255,255,255,.9); border: 1px solid var(--line);
+    padding: 6px 12px; border-radius: 999px;
+  }
+  .timer.warn { color: #fff; background: var(--red); border-color: var(--red); }
+  .notes-panel {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 7;
+    max-height: 38vh; overflow-y: auto;
+    background: rgba(15,23,42,.96); color: #F8FAFC;
+    padding: 18px 28px 26px; font-size: 22px; line-height: 1.5;
+    user-select: text;
+    transform: translateY(100%);
+    transition: transform 280ms var(--ease-out);
+  }
+  .notes-panel.open { transform: none; }
+  .notes-panel .nh { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #93B4FB; margin-bottom: 8px; }
+  [hidden] { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .slide, .slide.past { transform: none; }
+    .slide, .slide.active { transition: opacity 200ms linear, visibility 0s linear 200ms; }
+    .slide.active { transition: opacity 200ms linear, visibility 0s; }
+    .r, .active .r, .tag, .active .tag { transform: none; transition: opacity 200ms linear; transition-delay: 0s; }
+    .strike::after, .underline::after, .active .strike::after, .active .underline::after { transform: none; transition: none; }
+    .notes-panel, .progress i { transition: none; }
+  }
+
+  /* ---------- Phone / narrow portrait: fluid layout instead of a scaled canvas ---------- */
+  @media screen and (orientation: portrait) and (max-width: 900px) {
+    .deck { position: fixed; inset: 0; left: 0; top: 0; width: 100%; height: 100%; transform: none; }
+    .slide { padding: 56px 24px 64px; overflow-y: auto; justify-content: center; transform: translateX(32px); }
+    .slide.past { transform: translateX(-32px); }
+    .slide.active { transform: none; }
+    h1.title { font-size: clamp(56px, 18vw, 120px); }
+    .subtitle { font-size: clamp(20px, 5.6vw, 32px); margin-top: 20px; }
+    h2 { font-size: clamp(32px, 9vw, 56px); }
+    .lead { font-size: clamp(18px, 4.8vw, 26px); margin-top: 14px; }
+    .logo { width: 64px; height: 64px; margin-bottom: 28px; }
+    .s-title .bar { width: 80px; height: 6px; margin-top: 28px; }
+    .s-title .foot { left: 24px; bottom: 40px; font-size: 15px; }
+
+    .flow { flex-direction: column; align-items: stretch; gap: 10px; margin-top: 28px; }
+    .box { flex: none; padding: 18px 20px; gap: 16px; border-radius: 20px; }
+    .box .emo { font-size: 38px; }
+    .box .lbl { font-size: 19px; }
+    .arrow { width: 40px; height: 40px; align-self: center; transform: rotate(90deg); }
+    .tt { margin-top: 24px; flex-wrap: wrap; gap: 10px 14px; padding: 16px 18px; border-radius: 16px; border-left-width: 7px; align-self: stretch; }
+    .tt .day { font-size: 12px; flex-basis: 100%; }
+    .tt .row { font-size: 20px; }
+    .tag { font-size: 13px; padding: 6px 12px; }
+    .strike::after { height: 3px; }
+
+    .why { grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
+    .rows { gap: 12px; }
+    .rows li { font-size: clamp(16px, 4.6vw, 22px); gap: 14px; }
+    .ico { width: 44px; height: 44px; flex-basis: 44px; border-radius: 12px; font-size: 22px; }
+    .chips { height: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip { position: static; font-size: 14px; padding: 7px 14px; }
+
+    .obj { grid-template-columns: 1fr; grid-auto-flow: row; gap: 16px; margin-top: 28px; }
+    .obj li { font-size: clamp(17px, 4.8vw, 24px); gap: 14px; }
+    .num { width: 40px; height: 40px; flex-basis: 40px; font-size: 18px; }
+
+    .cards { grid-template-columns: 1fr; gap: 12px; margin-top: 20px; }
+    .card { padding: 16px 18px; border-radius: 18px; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; align-items: start; }
+    .card .emo { font-size: 32px; grid-row: span 2; }
+    .card h3 { font-size: 20px; margin: 2px 0 6px; }
+    .card li { font-size: 15px; padding: 5px 0; border-top-width: 1px; }
+    .pills { gap: 8px; margin-top: 16px; }
+    .pill { font-size: 14px; padding: 8px 14px; }
+
+    .s-close { padding-left: 24px; padding-right: 24px; }
+    .s-close .big { font-size: clamp(30px, 9vw, 56px); white-space: normal; }
+    .s-close .thanks { font-size: 17px; margin-top: 36px; }
+    .underline::after { height: 7px; }
+
+    .notes-panel { font-size: 16px; padding: 14px 18px 22px; }
+  }
+  /* short phones (e.g. 360x640) */
+  @media screen and (orientation: portrait) and (max-width: 900px) and (max-height: 720px) {
+    .slide { padding-top: 36px; padding-bottom: 44px; }
+    .flow { margin-top: 18px; gap: 6px; }
+    .box { padding: 12px 16px; }
+    .arrow { height: 30px; }
+    .tt { margin-top: 14px; padding: 12px 16px; }
+    .cards { gap: 8px; margin-top: 14px; }
+    .card { padding: 10px 16px; }
+    .card h3 { font-size: 18px; margin-bottom: 4px; }
+    .card li { font-size: 14px; padding: 3px 0; }
+    .pills { margin-top: 10px; }
+    .pill { font-size: 13px; padding: 6px 12px; }
+  }
+
+  /* ---------- Print: one slide per landscape page, no chrome ---------- */
+  @page { size: 1920px 1080px; margin: 0; }
+  @media print {
+    html, body { height: auto; overflow: visible; background: var(--bg); }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .deck { position: static !important; transform: none !important; width: 1920px; height: auto; }
+    .slide, .slide.past, .slide.active {
+      position: relative !important; inset: auto;
+      width: 1920px; height: 1080px; overflow: hidden;
+      opacity: 1 !important; visibility: visible !important; transform: none !important; transition: none !important;
+      break-after: page; page-break-after: always; break-inside: avoid;
+    }
+    .slide:last-child { break-after: auto; page-break-after: auto; }
+    .r, .tag { opacity: 1 !important; transform: none !important; transition: none !important; }
+    .strike::after, .underline::after { transform: none !important; transition: none !important; }
+    .progress, .counter, .timer, .notes-panel, .notes { display: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<main class="deck" id="deck" aria-live="polite">
+
+  <!-- 1 · Title -->
+  <section class="slide s-title" aria-label="Slide 1: Title">
+    <svg class="logo r" style="--i:0" viewBox="0 0 120 120" aria-hidden="true">
+      <rect x="4" y="4" width="112" height="112" rx="30" fill="#2563EB"/>
+      <rect x="28" y="34" width="64" height="10" rx="5" fill="#fff"/>
+      <rect x="28" y="55" width="44" height="10" rx="5" fill="#fff" opacity=".7"/>
+      <rect x="28" y="76" width="54" height="10" rx="5" fill="#fff" opacity=".45"/>
+    </svg>
+    <h1 class="title r" style="--i:1">One Board</h1>
+    <p class="subtitle r" style="--i:2">Announcements that update your timetable</p>
+    <div class="bar r" style="--i:3"></div>
+    <p class="foot r" style="--i:4">UMisOne · OCC 1</p>
+    <aside class="notes">Raise your hand if you've ever walked to a cancelled class. We are SyncWave Solutions, and our answer is One Board.</aside>
+  </section>
+
+  <!-- 2 · Description -->
+  <section class="slide" aria-label="Slide 2: What is One Board?">
+    <h2 class="r" style="--i:0">What is One Board?</h2>
+    <p class="lead r" style="--i:1">A web app that links FCSIT announcements to your timetable.</p>
+    <div class="flow">
+      <div class="box r" style="--i:2"><span class="emo" aria-hidden="true">👨‍🏫</span><span class="lbl">Lecturer posts a change</span></div>
+      <svg class="arrow r" style="--i:3" viewBox="0 0 160 48" fill="none" aria-hidden="true">
+        <path d="M4 24H148" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
+        <path d="M130 8L150 24L130 40" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <div class="box to r" style="--i:4"><span class="emo" aria-hidden="true">🗓️</span><span class="lbl">Student's timetable updates</span></div>
+    </div>
+    <div class="tt r" style="--i:5" aria-label="Wednesday 10:00, WIA2006, DK1, cancelled">
+      <span class="day">Your timetable</span>
+      <span class="row">Wed <span class="strike">10:00</span><span class="sep">·</span>WIA2006<span class="sep">·</span>DK1</span>
+      <span class="tag">CANCELLED</span>
+    </div>
+    <aside class="notes">One Board is a web-based platform for FCSIT. It brings all course announcements into one place and links them to each student's timetable and deadline calendar. When a lecturer cancels a class, changes a room or extends a deadline, the change shows up on every affected student's timetable straight away.</aside>
+  </section>
+
+  <!-- 3 · Justification -->
+  <section class="slide" aria-label="Slide 3: Why do we need it?">
+    <h2 class="r" style="--i:0">Why do we need it?</h2>
+    <div class="why">
+      <ul class="rows">
+        <li class="r" style="--i:1"><span class="ico" aria-hidden="true">📱</span>Scattered across 4+ platforms</li>
+        <li class="r" style="--i:2"><span class="ico" aria-hidden="true">🚶</span>Missed cancellations &amp; room changes</li>
+        <li class="r" style="--i:3"><span class="ico" aria-hidden="true">🗓️</span>Announcements ≠ timetable</li>
+        <li class="r" style="--i:4"><span class="ico" aria-hidden="true">🔁</span>Lecturers repeat the same post</li>
+        <li class="r" style="--i:5"><span class="ico" aria-hidden="true">🔍</span>Old messages hard to find</li>
+      </ul>
+      <div class="chips r" style="--i:6" aria-label="WhatsApp, Spectrum, Email, Instagram">
+        <span class="chip">WhatsApp</span>
+        <span class="chip">Spectrum</span>
+        <span class="chip">Email</span>
+        <span class="chip">Instagram</span>
+      </div>
+    </div>
+    <aside class="notes">Today, announcements are spread across WhatsApp, Spectrum, email and Instagram, and each student is in more than ten groups. Important messages get buried, so students walk to cancelled classes or work to outdated deadlines. Existing platforms store announcements but never update your timetable. Lecturers post the same notice several times and still get asked 'Is class on today?'. And old messages are almost impossible to search.</aside>
+  </section>
+
+  <!-- 4 · Objectives -->
+  <section class="slide" aria-label="Slide 4: Objectives">
+    <h2 class="r" style="--i:0">Objectives</h2>
+    <ol class="obj">
+      <li class="r" style="--i:1"><span class="num">1</span>One platform for all course announcements</li>
+      <li class="r" style="--i:2"><span class="num">2</span>Auto-update timetables</li>
+      <li class="r" style="--i:3"><span class="num">3</span>Auto-sync deadlines</li>
+      <li class="r" style="--i:4"><span class="num">4</span>Notify only when it affects you</li>
+      <li class="r" style="--i:5"><span class="num">5</span>Post once, reach every student</li>
+      <li class="r" style="--i:6"><span class="num">6</span>Searchable announcement archive</li>
+    </ol>
+    <aside class="notes">We have six objectives. First, one platform for all course and OCC announcements. Second, timetables that update automatically when classes change. Third, deadlines that sync to students' calendars. Fourth, notifications only when a change affects you. Fifth, lecturers post once and reach every affected student. And sixth, a searchable archive of past announcements.</aside>
+  </section>
+
+  <!-- 5 · Scope -->
+  <section class="slide" aria-label="Slide 5: Scope">
+    <h2 class="r" style="--i:0">Scope</h2>
+    <div class="cards">
+      <article class="card r" style="--i:1">
+        <div class="emo" aria-hidden="true">👩‍🎓</div>
+        <h3>Student</h3>
+        <ul><li>View live timetable</li><li>Deadline calendar</li><li>Search announcements</li></ul>
+      </article>
+      <article class="card r" style="--i:2">
+        <div class="emo" aria-hidden="true">👨‍🏫</div>
+        <h3>Lecturer</h3>
+        <ul><li>Post announcements</li><li>Change classes</li><li>Set &amp; extend deadlines</li></ul>
+      </article>
+      <article class="card r" style="--i:3">
+        <div class="emo" aria-hidden="true">🗂️</div>
+        <h3>Admin</h3>
+        <ul><li>Manage courses &amp; users</li><li>Faculty-wide notices</li></ul>
+      </article>
+    </div>
+    <div class="pills r" style="--i:4">
+      <span class="pill">🌐 Web app · FCSIT only</span>
+      <span class="pill out">❌ No Spectrum / WhatsApp / email integration</span>
+    </div>
+    <aside class="notes">One Board has three users. Students view their live timetable, deadline calendar and searchable announcements. Lecturers post announcements, change classes and set deadlines. Admin staff manage courses and users and post faculty-wide notices. It's a web app for FCSIT only. Integration with Spectrum, WhatsApp and UM email is out of scope.</aside>
+  </section>
+
+  <!-- 6 · Closing -->
+  <section class="slide s-close" aria-label="Slide 6: Closing">
+    <p class="big r" style="--i:0"><span class="muted">Spectrum stores announcements.</span></p>
+    <p class="big r" style="--i:2">One Board puts them in <span class="accent underline">your day</span>.</p>
+    <p class="thanks r" style="--i:4">Thank you · SyncWave Solutions</p>
+    <aside class="notes">In short, Spectrum stores announcements; One Board puts them in your day. We'd like your approval to proceed. Thank you.</aside>
+  </section>
+
+</main>
+
+<div class="timer" id="timer" hidden aria-live="off">3:00</div>
+<div class="counter" id="counter" aria-hidden="true">1 / 6</div>
+<div class="progress" aria-hidden="true"><i id="bar"></i></div>
+<div class="notes-panel" id="notes" aria-hidden="true">
+  <div class="nh" id="notesHead">Notes</div>
+  <div id="notesText"></div>
+</div>
+
+<script>
+(function () {
+  var deck = document.getElementById('deck');
+  var slides = Array.prototype.slice.call(deck.querySelectorAll('.slide'));
+  var total = slides.length;
+  var counter = document.getElementById('counter');
+  var bar = document.getElementById('bar');
+  var notes = document.getElementById('notes');
+  var notesHead = document.getElementById('notesHead');
+  var notesText = document.getElementById('notesText');
+  var timer = document.getElementById('timer');
+  var cur = 0;
+
+  // Scale the 1920x1080 canvas to fit the window (skipped in fluid phone mode).
+  function fit() {
+    var w = window.innerWidth || document.documentElement.clientWidth;
+    var h = window.innerHeight || document.documentElement.clientHeight;
+    var s = Math.min(w / 1920, h / 1080);
+    if (!s) { requestAnimationFrame(fit); return; } // window not laid out yet
+    deck.style.setProperty('--scale', s);
+  }
+
+  function fromHash() {
+    var n = parseInt(location.hash.replace('#', ''), 10);
+    return n >= 1 && n <= total ? n - 1 : 0;
+  }
+
+  function go(i) {
+    i = Math.max(0, Math.min(total - 1, i));
+    cur = i;
+    slides.forEach(function (s, k) {
+      s.classList.toggle('active', k === i);
+      s.classList.toggle('past', k < i);
+      s.setAttribute('aria-hidden', k === i ? 'false' : 'true');
+      if (k === i) s.scrollTop = 0;
+    });
+    counter.textContent = (i + 1) + ' / ' + total;
+    bar.style.width = ((i + 1) / total * 100) + '%';
+    var n = slides[i].querySelector('.notes');
+    notesHead.textContent = 'Notes · ' + (i + 1) + ' / ' + total;
+    notesText.textContent = n ? n.textContent : '';
+    var h = '#' + (i + 1);
+    if (location.hash !== h) {
+      try { history.replaceState(null, '', h); } catch (e) { location.hash = h; }
+    }
+  }
+  function next() { go(cur + 1); }
+  function prev() { go(cur - 1); }
+
+  function toggleFullscreen() {
+    var d = document, el = d.documentElement;
+    if (!(d.fullscreenElement || d.webkitFullscreenElement)) {
+      (el.requestFullscreen || el.webkitRequestFullscreen || function () {}).call(el);
+    } else {
+      (d.exitFullscreen || d.webkitExitFullscreen || function () {}).call(d);
+    }
+  }
+
+  function toggleNotes() {
+    var open = notes.classList.toggle('open');
+    notes.setAttribute('aria-hidden', open ? 'false' : 'true');
+  }
+
+  // Countdown: T starts from 3:00; T again stops and resets to 3:00.
+  var LIMIT = 180, endAt = 0, tick = null;
+  function fmt(sec) {
+    var neg = sec < 0, a = Math.abs(sec);
+    return (neg ? '−' : '') + Math.floor(a / 60) + ':' + String(a % 60).padStart(2, '0');
+  }
+  function renderTimer() {
+    var left = Math.ceil((endAt - Date.now()) / 1000);
+    timer.textContent = fmt(left);
+    timer.classList.toggle('warn', left < 15);
+  }
+  function toggleTimer() {
+    timer.hidden = false;
+    if (tick) {
+      clearInterval(tick); tick = null;
+      timer.textContent = fmt(LIMIT);
+      timer.classList.remove('warn');
+    } else {
+      endAt = Date.now() + LIMIT * 1000;
+      renderTimer();
+      tick = setInterval(renderTimer, 250);
+    }
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    switch (e.key) {
+      case 'ArrowRight': case ' ': case 'Spacebar': case 'PageDown':
+        e.preventDefault(); next(); break;
+      case 'ArrowLeft': case 'PageUp':
+        e.preventDefault(); prev(); break;
+      case 'Home': e.preventDefault(); go(0); break;
+      case 'End': e.preventDefault(); go(total - 1); break;
+      case 'f': case 'F': toggleFullscreen(); break;
+      case 'n': case 'N': toggleNotes(); break;
+      case 't': case 'T': toggleTimer(); break;
+    }
+  });
+
+  // Click (or tap) anywhere on the slide = next.
+  deck.addEventListener('click', function () { next(); });
+
+  // Swipe: left = next, right = previous.
+  var sx = 0, sy = 0, swiped = false;
+  deck.addEventListener('touchstart', function (e) {
+    var t = e.changedTouches[0]; sx = t.clientX; sy = t.clientY; swiped = false;
+  }, { passive: true });
+  deck.addEventListener('touchend', function (e) {
+    var t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      swiped = true;
+      if (dx < 0) next(); else prev();
+    }
+  }, { passive: true });
+  // Stop the synthetic click after a swipe from also advancing.
+  deck.addEventListener('click', function (e) {
+    if (swiped) { swiped = false; e.stopImmediatePropagation(); }
+  }, true);
+
+  window.addEventListener('resize', fit);
+  window.addEventListener('load', fit);
+  window.addEventListener('orientationchange', fit);
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(document.documentElement);
+  document.addEventListener('fullscreenchange', fit);
+  window.addEventListener('hashchange', function () { go(fromHash()); });
+
+  fit();
+  go(fromHash());
+})();
+</script>
+</body>
+</html>
