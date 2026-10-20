@@ -7,35 +7,39 @@
 <meta name="description" content="One Board by SyncWave Solutions: announcements that update your timetable.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #FAFAF9;
-    --surface: #FFFFFF;
-    --ink: #0F172A;
-    --muted: #475569;
-    --faint: #94A3B8;
-    --line: #E2E8F0;
-    --accent: #2563EB;
-    --accent-soft: #EFF4FF;
-    --red: #DC2626;
-    --red-soft: #FEF2F2;
-    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-    --dur: 480ms;
+    --paper: #F4F1EA;
+    --ink: #1A1A1A;
+    --ink-2: #6B6760;
+    --red: #D7261E;
+    --grid: rgba(26, 26, 26, 0.055);
+    --line: 1.5px solid var(--ink);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; border-radius: 0; }
   html, body { height: 100%; }
   body {
-    background: var(--bg);
+    background: var(--paper);
     color: var(--ink);
-    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-family: var(--sans);
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
+  .timetable-paper {
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(to bottom, var(--grid) 1px, transparent 1px),
+      linear-gradient(to right, var(--grid) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
 
-  /* ---------- Stage: fixed 1920x1080 canvas, scaled by JS to fit ---------- */
+  /* ---------- Stage: fixed 1920x1080 sheet, scaled by JS to fit ---------- */
   .deck {
     position: absolute;
     left: 50%; top: 50%;
@@ -46,389 +50,444 @@
   .slide {
     position: absolute; inset: 0;
     display: flex; flex-direction: column; justify-content: center;
-    padding: 110px 160px 130px;
+    padding: 160px 120px 110px;
     opacity: 0;
     visibility: hidden;
-    transform: translateX(56px);
-    transition: opacity var(--dur) var(--ease-out),
-                transform var(--dur) var(--ease-out),
-                visibility 0s linear var(--dur);
+    transition: opacity 250ms var(--ease), visibility 0s linear 250ms;
   }
-  .slide.past { transform: translateX(-56px); }
   .slide.active {
-    opacity: 1; visibility: visible; transform: none;
-    transition: opacity var(--dur) var(--ease-out),
-                transform var(--dur) var(--ease-out),
-                visibility 0s;
-  }
-  /* staggered entrance for items inside the current slide */
-  .r {
-    opacity: 0;
-    transform: translateY(18px);
-    transition: opacity 200ms ease-out, transform 200ms ease-out;
-  }
-  .active .r {
-    opacity: 1; transform: none;
-    transition: opacity 520ms var(--ease-out), transform 520ms var(--ease-out);
-    transition-delay: calc(120ms + var(--i, 0) * 70ms);
+    opacity: 1; visibility: visible;
+    transition: opacity 250ms var(--ease), visibility 0s;
   }
   .notes { display: none; }
 
+  /* Document header strip and page number (added to every slide by the script) */
+  .doc-head {
+    position: absolute; top: 52px; left: 120px; right: 120px;
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: end;
+    font: 500 18px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
+    padding-bottom: 14px; border-bottom: 1px solid var(--ink);
+  }
+  .doc-head span:nth-child(2) { text-align: center; }
+  .doc-head span:nth-child(3) { text-align: right; }
+  .pg, .foot {
+    position: absolute; bottom: 44px;
+    font: 400 20px/1 var(--mono); letter-spacing: 0.08em;
+  }
+  .pg { right: 120px; }
+  .foot { left: 120px; color: var(--ink-2); }
+
+  /* ---------- Motion: everything rests in its final state; .active replays the entrance ---------- */
+  @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+  @keyframes stamp {
+    0%   { opacity: 0;   transform: rotate(-6deg) scale(1.15); animation-timing-function: var(--ease); }
+    56%  { opacity: .9;  transform: rotate(-6deg) scale(1); }
+    72%  { transform: translateX(2px) rotate(-6deg); }
+    86%  { transform: translateX(-1px) rotate(-6deg); }
+    100% { opacity: .9;  transform: rotate(-6deg); }
+  }
+  @keyframes chat { from { transform: translateY(var(--chat-from, 0px)); } to { transform: none; } }
+
+  .active .r {
+    animation: rise 520ms var(--ease) both;
+    animation-delay: calc(var(--d, 100ms) + var(--i, 0) * 70ms);
+  }
+
+  /* Red pen: hand-drawn SVG strokes that draw themselves */
+  .pen { position: absolute; overflow: visible; pointer-events: none; }
+  .pen path {
+    fill: none; stroke: var(--red); stroke-width: var(--sw, 3);
+    stroke-linecap: round; stroke-linejoin: round;
+    stroke-dasharray: 1 2; stroke-dashoffset: 0;
+  }
+  .active .pen path {
+    animation: draw var(--pdur, 600ms) var(--ease) both;
+    animation-delay: var(--pd, 600ms);
+  }
+
   /* ---------- Type ---------- */
-  h1.title {
-    font-size: 220px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.95;
-  }
-  .subtitle { font-size: 60px; font-weight: 500; color: var(--muted); letter-spacing: -0.02em; margin-top: 40px; }
-  h2 { font-size: 92px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.05; }
-  .lead { font-size: 44px; color: var(--muted); margin-top: 28px; line-height: 1.3; max-width: 1500px; }
-  .accent { color: var(--accent); }
+  h2 { font-size: 88px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.04; }
+  .lead { font-size: 32px; line-height: 1.4; margin-top: 32px; max-width: 600px; }
+  .mono { font-family: var(--mono); }
 
-  /* ---------- Slide 1 ---------- */
-  .s-title { justify-content: center; }
-  .logo { width: 120px; height: 120px; margin-bottom: 56px; }
-  .s-title .foot {
-    position: absolute; left: 160px; bottom: 96px;
-    font-size: 30px; color: var(--muted); font-weight: 500; letter-spacing: 0.01em;
-  }
-  .s-title .bar { width: 160px; height: 10px; border-radius: 10px; background: var(--accent); margin-top: 56px; }
+  /* ---------- 1 · Title ---------- */
+  .s-title { justify-content: flex-end; padding-bottom: 200px; }
+  .kicker { font: 500 24px/1 var(--mono); letter-spacing: 0.14em; color: var(--ink-2); margin-bottom: 40px; }
+  h1.title { font-size: 240px; font-weight: 700; letter-spacing: -0.035em; line-height: 0.9; margin-left: -12px; }
+  .sub { font-size: 48px; line-height: 1.25; margin-top: 44px; }
+  .circled { position: relative; white-space: nowrap; }
+  .circled .pen { left: -26px; top: -16px; width: calc(100% + 52px); height: calc(100% + 32px); }
 
-  /* ---------- Slide 2 ---------- */
-  .flow { display: flex; align-items: center; gap: 40px; margin-top: 72px; }
-  .box {
-    flex: 0 0 600px;
-    display: flex; align-items: center; gap: 32px;
-    background: var(--surface); border: 2px solid var(--line); border-radius: 32px;
-    padding: 40px 44px;
-    box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 12px 32px -12px rgba(15,23,42,.12);
-  }
-  .box .emo { font-size: 76px; line-height: 1; }
-  .box .lbl { font-size: 40px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
-  .box.to { border-color: var(--accent); background: var(--accent-soft); }
-  .arrow { width: 160px; height: 48px; flex: 0 0 auto; color: var(--accent); }
+  /* ---------- 2 · Description ---------- */
+  .desc { display: grid; grid-template-columns: 620px 1fr; column-gap: 100px; align-items: center; }
   .tt {
-    margin-top: 64px; align-self: flex-start;
-    display: flex; align-items: center; gap: 36px;
-    background: var(--surface); border: 2px solid var(--line); border-left: 10px solid var(--red);
-    border-radius: 24px; padding: 30px 44px;
+    display: grid; grid-template-columns: 140px repeat(3, 260px); width: max-content;
+    border-top: var(--line); border-left: var(--line);
+    background: rgba(244, 241, 234, 0.6);
   }
-  .tt .day { font-size: 28px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
-  .tt .row { font-size: 44px; font-weight: 600; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
-  .tt .sep { color: var(--faint); margin: 0 .25em; }
-  .strike { position: relative; color: var(--red); }
-  .strike::after {
-    content: ""; position: absolute; left: -4%; right: -4%; top: 52%;
-    height: 5px; border-radius: 5px; background: var(--red);
-    transform: scaleX(0); transform-origin: left center;
-    transition: transform 160ms ease-out;
+  .tt > div {
+    height: 100px; padding: 18px 16px;
+    border-right: var(--line); border-bottom: var(--line);
+    font: 500 24px/1.2 var(--mono);
   }
-  .active .strike::after { transform: scaleX(1); transition: transform 420ms var(--ease-out) 900ms; }
-  .tag {
-    font-size: 28px; font-weight: 800; letter-spacing: .1em;
-    color: var(--red); background: var(--red-soft); border: 2px solid #FECACA;
-    padding: 10px 20px; border-radius: 999px;
-    opacity: 0; transform: scale(.92);
-    transition: opacity 160ms ease-out, transform 160ms ease-out;
+  .tt .th { height: 56px; padding: 16px; font-size: 20px; letter-spacing: 0.14em; }
+  .tt .tm { color: var(--ink-2); font-weight: 400; font-size: 22px; }
+  .tt .room { color: var(--ink-2); font-weight: 400; }
+  .tt .hit { position: relative; }
+  .tt .hit .pen { left: 8px; top: 22px; width: calc(100% - 16px); height: 20px; }
+  .stamp-wrap { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; }
+  .stamp {
+    font: 500 26px/1 var(--mono); letter-spacing: 0.14em;
+    color: var(--red); border: 2px solid var(--red);
+    padding: 10px 14px 9px; margin-bottom: -6px;
+    opacity: .9; transform: rotate(-6deg);
+    filter: url(#inkTex);
   }
-  .active .tag { opacity: 1; transform: none; transition: opacity 360ms var(--ease-out) 1200ms, transform 360ms var(--ease-out) 1200ms; }
+  .active .stamp { animation: stamp 320ms linear both; animation-delay: var(--sd, 1550ms); }
+  .diff { margin-top: 32px; font: 400 24px/1.65 var(--mono); }
+  .diff > div { white-space: pre; }
+  .diff .del { color: var(--ink-2); }
+  .diff .del s { text-decoration-thickness: 2px; }
+  .diff .add { color: var(--red); }
 
-  /* ---------- Slide 3 ---------- */
-  .why { display: grid; grid-template-columns: 1fr 520px; gap: 80px; align-items: center; margin-top: 64px; }
-  .rows { list-style: none; display: grid; gap: 22px; }
-  .rows li { display: flex; align-items: center; gap: 32px; font-size: 44px; font-weight: 600; letter-spacing: -0.01em; }
-  .ico {
-    width: 84px; height: 84px; flex: 0 0 84px; border-radius: 22px;
-    background: var(--surface); border: 2px solid var(--line);
-    display: grid; place-items: center; font-size: 44px;
+  /* ---------- 3 · Justification ---------- */
+  .why { display: grid; grid-template-columns: 430px 1fr; column-gap: 290px; align-items: center; margin-top: 44px; }
+  .phone-wrap { position: relative; }
+  .phone {
+    position: relative; height: 670px;
+    border: var(--line);
+    border-radius: 40px; /* a line drawing of a phone, not a UI card */
+    padding: 44px 14px 34px;
   }
-  .chips { position: relative; height: 460px; }
-  .chip {
-    position: absolute; font-size: 32px; font-weight: 600; color: var(--muted);
-    background: #F1F5F9; border: 2px solid var(--line); border-radius: 999px; padding: 16px 30px;
-    white-space: nowrap;
+  .phone::before, .phone::after {
+    content: ""; position: absolute; left: 50%; transform: translateX(-50%);
+    border-top: var(--line);
   }
-  .chip:nth-child(1) { left: 20px;  top: 30px;  rotate: -6deg; }
-  .chip:nth-child(2) { left: 230px; top: 140px; rotate: 5deg; }
-  .chip:nth-child(3) { left: 0;     top: 270px; rotate: 3deg; }
-  .chip:nth-child(4) { left: 190px; top: 370px; rotate: -4deg; }
+  .phone::before { top: 21px; width: 64px; }
+  .phone::after { bottom: 16px; width: 110px; }
+  .screen { height: 100%; border: 1px solid var(--ink); background: #FBFAF7; display: flex; flex-direction: column; }
+  .chat-head { display: flex; justify-content: space-between; align-items: baseline; padding: 14px 16px; border-bottom: 1px solid var(--ink); }
+  .gname { font-size: 20px; font-weight: 600; }
+  .gmeta { font: 400 15px/1 var(--mono); color: var(--ink-2); }
+  .chat-view { position: relative; flex: 1; clip-path: inset(0 -600px 0 0); }
+  .feed { position: absolute; left: 0; right: 0; bottom: 0; padding: 0 16px 6px; }
+  .active .feed { animation: chat 2500ms cubic-bezier(0.45, 0, 0.2, 1) both; animation-delay: 300ms; }
+  .msg { margin-bottom: 12px; position: relative; }
+  .who { font: 400 14px/1 var(--mono); color: var(--ink-2); margin-bottom: 6px; letter-spacing: 0.02em; }
+  .b { display: inline-block; max-width: 86%; background: #fff; border: 1px solid #CFC9BD; padding: 8px 12px; font-size: 20px; line-height: 1.3; }
+  .msg.me { text-align: right; }
+  .msg.me .b { background: #E7E3DA; }
+  .b.stk { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; width: 104px; height: 80px; padding: 0; font: 400 14px/1 var(--mono); color: var(--ink-2); }
+  .b.stk svg { width: 26px; height: 26px; fill: none; stroke: var(--ink-2); stroke-width: 1.5; stroke-linecap: round; }
+  .lim .b { max-width: none; white-space: nowrap; }
+  .lim-mark { position: relative; display: inline-block; }
+  .lim-mark .pen { left: -14px; top: -24px; width: calc(100% + 40px); height: calc(100% + 38px); }
+  .note {
+    position: absolute; left: calc(100% + 44px); top: 2px; width: 240px;
+    font: 500 22px/1.35 var(--mono); color: var(--red);
+  }
+  .rows { list-style: none; border-top: 1px solid var(--ink); }
+  .rows li { display: grid; grid-template-columns: 88px 1fr; align-items: baseline; padding: 26px 0; border-bottom: 1px solid var(--ink); font-size: 36px; font-weight: 600; line-height: 1.2; }
+  .rows .n { font: 400 26px/1 var(--mono); color: var(--ink-2); }
 
-  /* ---------- Slide 4 ---------- */
-  .obj {
-    list-style: none; margin-top: 72px;
-    display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: repeat(3, auto);
-    grid-auto-flow: column; gap: 56px 96px;
-  }
-  .obj li { display: flex; align-items: center; gap: 36px; font-size: 44px; font-weight: 600; line-height: 1.2; letter-spacing: -0.01em; }
-  .num {
-    width: 88px; height: 88px; flex: 0 0 88px; border-radius: 50%;
-    background: var(--accent); color: #fff; font-size: 40px; font-weight: 800;
-    display: grid; place-items: center;
-  }
+  /* ---------- 4 · Objectives ---------- */
+  .obj { list-style: none; margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); border-top: var(--line); border-left: var(--line); }
+  .obj li { min-height: 290px; border-right: var(--line); border-bottom: var(--line); }
+  .obj .cell { height: 100%; padding: 28px 32px 32px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px; }
+  .obj .n { font: 400 56px/1 var(--mono); }
+  .obj .t { font-size: 38px; font-weight: 600; line-height: 1.2; }
 
-  /* ---------- Slide 5 ---------- */
-  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 40px; margin-top: 64px; }
-  .card {
-    background: var(--surface); border: 2px solid var(--line); border-radius: 32px; padding: 48px 48px 40px;
-    box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 12px 32px -14px rgba(15,23,42,.12);
-  }
-  .card .emo { font-size: 72px; line-height: 1; }
-  .card h3 { font-size: 52px; font-weight: 800; letter-spacing: -0.02em; margin: 24px 0 20px; }
-  .card ul { list-style: none; }
-  .card li { font-size: 32px; color: var(--muted); padding: 16px 0; border-top: 2px solid var(--line); line-height: 1.25; }
-  .pills { display: flex; gap: 24px; margin-top: 48px; flex-wrap: wrap; }
-  .pill {
-    font-size: 30px; font-weight: 600; padding: 16px 30px; border-radius: 999px;
-    background: var(--accent-soft); color: var(--accent); border: 2px solid #C7D7FE;
-  }
-  .pill.out { background: #F1F5F9; color: var(--muted); border-color: var(--line); }
+  /* ---------- 5 · Scope ---------- */
+  .scope { margin-top: 56px; display: grid; grid-template-columns: repeat(3, 1fr); border-top: var(--line); border-left: var(--line); }
+  .scope > div { border-right: var(--line); border-bottom: var(--line); padding: 22px 28px; font-size: 32px; line-height: 1.25; min-height: 82px; }
+  .scope .h { background: var(--ink); color: var(--paper); font: 500 24px/1 var(--mono); letter-spacing: 0.14em; padding: 20px 28px; min-height: 0; }
+  .scope .h + .h { border-left: 1.5px solid var(--paper); margin-left: -1.5px; }
+  .meta { margin-top: 48px; display: grid; grid-template-columns: 300px 1fr; row-gap: 16px; font: 400 26px/1.4 var(--mono); }
+  .meta .k { color: var(--ink-2); letter-spacing: 0.12em; }
+  .meta .v { justify-self: start; position: relative; }
+  .meta .v .pen { left: -6px; top: calc(50% - 10px); width: calc(100% + 12px); height: 20px; }
 
-  /* ---------- Slide 6 ---------- */
-  .s-close { align-items: center; text-align: center; padding-left: 80px; padding-right: 80px; }
-  .s-close .big { font-size: 92px; font-weight: 800; letter-spacing: -0.04em; line-height: 1.25; white-space: nowrap; }
-  .s-close .big .muted { color: var(--muted); font-weight: 700; }
-  .s-close .thanks { font-size: 36px; color: var(--muted); margin-top: 80px; font-weight: 500; }
-  .underline { position: relative; white-space: nowrap; }
-  .underline::after {
-    content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 12px; border-radius: 12px;
-    background: var(--accent); opacity: .18;
-    transform: scaleX(0); transform-origin: left center;
-    transition: transform 160ms ease-out;
-  }
-  .active .underline::after { transform: scaleX(1); transition: transform 600ms var(--ease-out) 700ms; }
+  /* ---------- 6 · Closing ---------- */
+  .close-lines p { font-size: 88px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; white-space: nowrap; }
+  .close-lines .l1 { color: var(--ink-2); }
+  .key { color: var(--red); position: relative; white-space: nowrap; }
+  .key .pen { left: -4px; top: calc(100% - 12px); width: calc(100% + 10px); height: 28px; }
+  .s-close .foot { color: var(--ink); letter-spacing: 0.14em; }
 
-  /* ---------- Presenter chrome (outside the stage) ---------- */
-  .progress { position: fixed; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(15,23,42,.06); z-index: 5; }
-  .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width 400ms var(--ease-out); }
-  .counter {
-    position: fixed; right: 20px; bottom: 14px; z-index: 5;
-    font-size: 14px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums;
-  }
+  /* ---------- Presenter chrome (outside the sheet) ---------- */
+  .progress { position: fixed; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(26, 26, 26, 0.08); z-index: 5; }
+  .progress i { display: block; height: 100%; width: 0; background: var(--ink); transition: width 300ms var(--ease); }
   .timer {
-    position: fixed; top: 14px; right: 16px; z-index: 6;
-    font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums;
-    color: var(--muted); background: rgba(255,255,255,.9); border: 1px solid var(--line);
-    padding: 6px 12px; border-radius: 999px;
+    position: fixed; top: 10px; right: 14px; z-index: 6;
+    font: 500 14px/1 var(--mono); letter-spacing: 0.06em; font-variant-numeric: tabular-nums;
+    color: var(--ink); background: var(--paper); border: var(--line);
+    padding: 5px 8px;
   }
-  .timer.warn { color: #fff; background: var(--red); border-color: var(--red); }
+  .timer.warn { color: var(--red); border-color: var(--red); }
   .notes-panel {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 7;
     max-height: 38vh; overflow-y: auto;
-    background: rgba(15,23,42,.96); color: #F8FAFC;
-    padding: 18px 28px 26px; font-size: 22px; line-height: 1.5;
+    background: var(--ink); color: var(--paper);
+    padding: 16px 28px 26px; font-size: 22px; line-height: 1.5;
     user-select: text;
     transform: translateY(100%);
-    transition: transform 280ms var(--ease-out);
+    transition: transform 300ms var(--ease);
   }
   .notes-panel.open { transform: none; }
-  .notes-panel .nh { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #93B4FB; margin-bottom: 8px; }
+  .notes-panel .nh { font: 500 13px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: #B9B3A8; margin-bottom: 10px; }
+  .defs { position: absolute; width: 0; height: 0; overflow: hidden; }
   [hidden] { display: none !important; }
 
   @media (prefers-reduced-motion: reduce) {
-    .slide, .slide.past { transform: none; }
-    .slide, .slide.active { transition: opacity 200ms linear, visibility 0s linear 200ms; }
-    .slide.active { transition: opacity 200ms linear, visibility 0s; }
-    .r, .active .r, .tag, .active .tag { transform: none; transition: opacity 200ms linear; transition-delay: 0s; }
-    .strike::after, .underline::after, .active .strike::after, .active .underline::after { transform: none; transition: none; }
+    .slide, .slide.active { transition-duration: 200ms, 0s; }
+    .active .r, .active .pen path, .active .stamp {
+      animation: fade 300ms ease both !important;
+      animation-delay: 0s !important;
+    }
+    .active .feed { animation: none !important; }
     .notes-panel, .progress i { transition: none; }
   }
 
-  /* ---------- Phone / narrow portrait: fluid layout instead of a scaled canvas ---------- */
+  /* ---------- Phone / narrow portrait: fluid sheet instead of a scaled canvas ---------- */
   @media screen and (orientation: portrait) and (max-width: 900px) {
     .deck { position: fixed; inset: 0; left: 0; top: 0; width: 100%; height: 100%; transform: none; }
-    .slide { padding: 56px 24px 64px; overflow-y: auto; justify-content: center; transform: translateX(32px); }
-    .slide.past { transform: translateX(-32px); }
-    .slide.active { transform: none; }
-    h1.title { font-size: clamp(56px, 18vw, 120px); }
-    .subtitle { font-size: clamp(20px, 5.6vw, 32px); margin-top: 20px; }
-    h2 { font-size: clamp(32px, 9vw, 56px); }
-    .lead { font-size: clamp(18px, 4.8vw, 26px); margin-top: 14px; }
-    .logo { width: 64px; height: 64px; margin-bottom: 28px; }
-    .s-title .bar { width: 80px; height: 6px; margin-top: 28px; }
-    .s-title .foot { left: 24px; bottom: 40px; font-size: 15px; }
+    .slide { padding: 76px 20px 48px; overflow-y: auto; justify-content: safe center; }
+    .doc-head {
+      top: 14px; left: 20px; right: 20px;
+      display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px 12px;
+      font-size: 9.5px; letter-spacing: 0.1em; padding-bottom: 8px;
+    }
+    .doc-head span:nth-child(3) { text-align: left; }
+    .pg, .foot { bottom: 16px; font-size: 11px; }
+    .pg { right: 20px; }
+    .foot { left: 20px; }
+    h2 { font-size: clamp(48px, 12vw, 88px); }
+    .lead { font-size: 18px; margin-top: 14px; }
 
-    .flow { flex-direction: column; align-items: stretch; gap: 10px; margin-top: 28px; }
-    .box { flex: none; padding: 18px 20px; gap: 16px; border-radius: 20px; }
-    .box .emo { font-size: 38px; }
-    .box .lbl { font-size: 19px; }
-    .arrow { width: 40px; height: 40px; align-self: center; transform: rotate(90deg); }
-    .tt { margin-top: 24px; flex-wrap: wrap; gap: 10px 14px; padding: 16px 18px; border-radius: 16px; border-left-width: 7px; align-self: stretch; }
-    .tt .day { font-size: 12px; flex-basis: 100%; }
-    .tt .row { font-size: 20px; }
-    .tag { font-size: 13px; padding: 6px 12px; }
-    .strike::after { height: 3px; }
+    .s-title { justify-content: flex-end; padding-bottom: 96px; }
+    .kicker { font-size: 11px; margin-bottom: 18px; }
+    h1.title { font-size: clamp(56px, 18vw, 120px); margin-left: -3px; }
+    .sub { font-size: 22px; margin-top: 18px; }
+    .circled .pen { left: -12px; top: -8px; width: calc(100% + 24px); height: calc(100% + 16px); --sw: 4; }
 
-    .why { grid-template-columns: 1fr; gap: 24px; margin-top: 24px; }
-    .rows { gap: 12px; }
-    .rows li { font-size: clamp(16px, 4.6vw, 22px); gap: 14px; }
-    .ico { width: 44px; height: 44px; flex-basis: 44px; border-radius: 12px; font-size: 22px; }
-    .chips { height: auto; display: flex; flex-wrap: wrap; gap: 8px; }
-    .chip { position: static; font-size: 14px; padding: 7px 14px; }
+    .desc { grid-template-columns: 1fr; row-gap: 24px; }
+    .tt { grid-template-columns: 50px repeat(3, 1fr); width: auto; }
+    .tt > div { height: 58px; padding: 7px 6px; font-size: 12px; }
+    .tt .th { height: 28px; padding: 8px 6px; font-size: 11px; letter-spacing: 0.1em; }
+    .tt .tm { font-size: 11px; }
+    .tt .sep { display: none; }
+    .tt .room { display: block; font-size: 11px; margin-top: 2px; }
+    .tt .hit .pen { left: 3px; top: 8px; width: calc(100% - 6px); height: 12px; --sw: 4; }
+    .stamp-wrap { padding-bottom: 5px; }
+    .stamp { font-size: 11px; letter-spacing: 0.08em; border-width: 1.5px; padding: 4px 5px 3px; }
+    .diff { margin-top: 14px; font-size: 12px; }
 
-    .obj { grid-template-columns: 1fr; grid-auto-flow: row; gap: 16px; margin-top: 28px; }
-    .obj li { font-size: clamp(17px, 4.8vw, 24px); gap: 14px; }
-    .num { width: 40px; height: 40px; flex-basis: 40px; font-size: 18px; }
+    .why { grid-template-columns: 1fr; row-gap: 20px; margin-top: 16px; }
+    .phone-wrap { width: 220px; }
+    .phone { height: 318px; border-radius: 22px; padding: 22px 7px 18px; }
+    .phone::before { top: 10px; width: 34px; }
+    .phone::after { bottom: 8px; width: 56px; }
+    .chat-head { padding: 7px 8px; }
+    .gname { font-size: 11px; }
+    .gmeta { font-size: 8.5px; }
+    .feed { padding: 0 8px 3px; }
+    .msg { margin-bottom: 6px; }
+    .who { font-size: 7.5px; margin-bottom: 3px; }
+    .b { font-size: 10.5px; padding: 4px 6px; }
+    .b.stk { width: 54px; height: 40px; gap: 3px; font-size: 7.5px; }
+    .b.stk svg { width: 13px; height: 13px; }
+    .lim-mark .pen { left: -7px; top: -12px; width: calc(100% + 20px); height: calc(100% + 19px); }
+    .note { left: calc(100% + 26px); width: 112px; font-size: 11px; }
+    .rows li { grid-template-columns: 34px 1fr; padding: 9px 0; font-size: 16px; }
+    .rows .n { font-size: 12px; }
 
-    .cards { grid-template-columns: 1fr; gap: 12px; margin-top: 20px; }
-    .card { padding: 16px 18px; border-radius: 18px; display: grid; grid-template-columns: auto 1fr; column-gap: 14px; align-items: start; }
-    .card .emo { font-size: 32px; grid-row: span 2; }
-    .card h3 { font-size: 20px; margin: 2px 0 6px; }
-    .card li { font-size: 15px; padding: 5px 0; border-top-width: 1px; }
-    .pills { gap: 8px; margin-top: 16px; }
-    .pill { font-size: 14px; padding: 8px 14px; }
+    .obj { grid-template-columns: repeat(2, 1fr); margin-top: 22px; }
+    .obj li { min-height: 104px; }
+    .obj .cell { padding: 10px 12px 12px; gap: 10px; }
+    .obj .n { font-size: 20px; }
+    .obj .t { font-size: 15px; }
 
-    .s-close { padding-left: 24px; padding-right: 24px; }
-    .s-close .big { font-size: clamp(30px, 9vw, 56px); white-space: normal; }
-    .s-close .thanks { font-size: 17px; margin-top: 36px; }
-    .underline::after { height: 7px; }
+    .scope { margin-top: 22px; }
+    .scope > div { padding: 8px; font-size: 12.5px; min-height: 0; }
+    .scope .h { font-size: 10px; letter-spacing: 0.08em; padding: 8px; }
+    .meta { margin-top: 20px; grid-template-columns: 1fr; row-gap: 2px; font-size: 12px; }
+    .meta .k { font-size: 10px; margin-top: 8px; }
+    .meta .v .pen { top: calc(50% - 6px); height: 12px; }
 
-    .notes-panel { font-size: 16px; padding: 14px 18px 22px; }
+    .close-lines p { font-size: clamp(30px, 9vw, 56px); white-space: normal; }
+    .key .pen { top: calc(100% - 7px); height: 16px; }
+
+    .timer { top: auto; bottom: 10px; right: auto; left: 50%; transform: translateX(-50%); font-size: 12px; }
+    .notes-panel { font-size: 15px; padding: 12px 18px 22px; }
   }
-  /* short phones (e.g. 360x640) */
-  @media screen and (orientation: portrait) and (max-width: 900px) and (max-height: 720px) {
-    .slide { padding-top: 36px; padding-bottom: 44px; }
-    .flow { margin-top: 18px; gap: 6px; }
-    .box { padding: 12px 16px; }
-    .arrow { height: 30px; }
-    .tt { margin-top: 14px; padding: 12px 16px; }
-    .cards { gap: 8px; margin-top: 14px; }
-    .card { padding: 10px 16px; }
-    .card h3 { font-size: 18px; margin-bottom: 4px; }
-    .card li { font-size: 14px; padding: 3px 0; }
-    .pills { margin-top: 10px; }
-    .pill { font-size: 13px; padding: 6px 12px; }
-  }
 
-  /* ---------- Print: one slide per landscape page, no chrome ---------- */
+  /* ---------- Print: one slide per landscape page, final states, no chrome ---------- */
   @page { size: 1920px 1080px; margin: 0; }
   @media print {
-    html, body { height: auto; overflow: visible; background: var(--bg); }
+    html, body { height: auto; overflow: visible; }
     body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .deck { position: static !important; transform: none !important; width: 1920px; height: auto; }
-    .slide, .slide.past, .slide.active {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+    .deck { position: static !important; transform: none !important; width: 1920px; height: auto; background-image: none; }
+    .slide {
       position: relative !important; inset: auto;
       width: 1920px; height: 1080px; overflow: hidden;
-      opacity: 1 !important; visibility: visible !important; transform: none !important; transition: none !important;
+      opacity: 1 !important; visibility: visible !important;
       break-after: page; page-break-after: always; break-inside: avoid;
+      background-color: var(--paper);
+      background-image:
+        linear-gradient(to bottom, var(--grid) 1px, transparent 1px),
+        linear-gradient(to right, var(--grid) 1px, transparent 1px);
+      background-size: 32px 32px;
     }
     .slide:last-child { break-after: auto; page-break-after: auto; }
-    .r, .tag { opacity: 1 !important; transform: none !important; transition: none !important; }
-    .strike::after, .underline::after { transform: none !important; transition: none !important; }
-    .progress, .counter, .timer, .notes-panel, .notes { display: none !important; }
+    .progress, .timer, .notes-panel, .notes { display: none !important; }
   }
 </style>
 </head>
 <body>
 
-<main class="deck" id="deck" aria-live="polite">
+<!-- Ink texture for the rubber stamp -->
+<svg class="defs" aria-hidden="true" focusable="false">
+  <filter id="inkTex" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="7" result="noise"/>
+    <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  6 0 0 0 -2.3" result="speckle"/>
+    <feComposite in="SourceGraphic" in2="speckle" operator="in"/>
+  </filter>
+</svg>
+
+<main class="deck timetable-paper" id="deck" aria-live="polite">
 
   <!-- 1 · Title -->
-  <section class="slide s-title" aria-label="Slide 1: Title">
-    <svg class="logo r" style="--i:0" viewBox="0 0 120 120" aria-hidden="true">
-      <rect x="4" y="4" width="112" height="112" rx="30" fill="#2563EB"/>
-      <rect x="28" y="34" width="64" height="10" rx="5" fill="#fff"/>
-      <rect x="28" y="55" width="44" height="10" rx="5" fill="#fff" opacity=".7"/>
-      <rect x="28" y="76" width="54" height="10" rx="5" fill="#fff" opacity=".45"/>
-    </svg>
+  <section class="slide s-title" data-section="Title" aria-label="Slide 1: Title">
+    <p class="kicker r" style="--i:0">PROPOSAL · WIA2006 · SEM 1 2026/27</p>
     <h1 class="title r" style="--i:1">One Board</h1>
-    <p class="subtitle r" style="--i:2">Announcements that update your timetable</p>
-    <div class="bar r" style="--i:3"></div>
-    <p class="foot r" style="--i:4">UMisOne · OCC 1</p>
+    <p class="sub r" style="--i:2">Announcements that update your <span class="circled">timetable<svg class="pen" style="--pd:800ms; --pdur:650ms" viewBox="0 0 300 90" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M52 16C110 4 228 4 276 26C300 38 296 66 238 78C170 90 70 88 26 70C2 58 6 34 46 20C74 11 120 8 160 9"/></svg></span></p>
+    <p class="foot r" style="--i:3">UMisOne · OCC 1</p>
     <aside class="notes">Raise your hand if you've ever walked to a cancelled class. We are SyncWave Solutions, and our answer is One Board.</aside>
   </section>
 
   <!-- 2 · Description -->
-  <section class="slide" aria-label="Slide 2: What is One Board?">
-    <h2 class="r" style="--i:0">What is One Board?</h2>
-    <p class="lead r" style="--i:1">A web app that links FCSIT announcements to your timetable.</p>
-    <div class="flow">
-      <div class="box r" style="--i:2"><span class="emo" aria-hidden="true">👨‍🏫</span><span class="lbl">Lecturer posts a change</span></div>
-      <svg class="arrow r" style="--i:3" viewBox="0 0 160 48" fill="none" aria-hidden="true">
-        <path d="M4 24H148" stroke="currentColor" stroke-width="6" stroke-linecap="round"/>
-        <path d="M130 8L150 24L130 40" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>
-      <div class="box to r" style="--i:4"><span class="emo" aria-hidden="true">🗓️</span><span class="lbl">Student's timetable updates</span></div>
-    </div>
-    <div class="tt r" style="--i:5" aria-label="Wednesday 10:00, WIA2006, DK1, cancelled">
-      <span class="day">Your timetable</span>
-      <span class="row">Wed <span class="strike">10:00</span><span class="sep">·</span>WIA2006<span class="sep">·</span>DK1</span>
-      <span class="tag">CANCELLED</span>
+  <section class="slide" data-section="Description" aria-label="Slide 2: What is One Board?">
+    <div class="desc">
+      <div>
+        <h2 class="r" style="--i:0">What is One Board?</h2>
+        <p class="lead r" style="--i:1">A web app that links FCSIT announcements to your timetable.</p>
+      </div>
+      <div>
+        <div class="tt r" style="--d:250ms" role="img" aria-label="Timetable excerpt. Wednesday 10:00, WIA2006 in DK1, is struck out and stamped cancelled.">
+          <div class="th"></div><div class="th">MON</div><div class="th">TUE</div><div class="th">WED</div>
+          <div class="tm">08:00</div><div><span class="code">WIX1003</span><span class="sep"> · </span><span class="room">BK2</span></div><div></div><div></div>
+          <div class="tm">09:00</div><div></div><div><span class="code">WIA2001</span><span class="sep"> · </span><span class="room">DK3</span></div><div><span class="code">WIX1002</span><span class="sep"> · </span><span class="room">MM4</span></div>
+          <div class="tm">10:00</div><div><span class="code">WIA2004</span><span class="sep"> · </span><span class="room">BK1</span></div><div></div>
+          <div class="hit">
+            <span class="code">WIA2006</span><span class="sep"> · </span><span class="room">DK1</span>
+            <svg class="pen" style="--pd:900ms" viewBox="0 0 200 16" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 10C40 7 70 11 110 8C150 5 175 9 197 6"/></svg>
+            <div class="stamp-wrap"><span class="stamp">CANCELLED</span></div>
+          </div>
+          <div class="tm">11:00</div><div></div><div><span class="code">WIA2003</span><span class="sep"> · </span><span class="room">DK2</span></div><div></div>
+        </div>
+        <div class="diff" style="--d:1950ms">
+          <div class="del r" style="--i:0">- <s>WED 10:00  WIA2006  DK1</s></div>
+          <div class="add r" style="--i:1">+ WED 10:00  WIA2006  CANCELLED</div>
+        </div>
+      </div>
     </div>
     <aside class="notes">One Board is a web-based platform for FCSIT. It brings all course announcements into one place and links them to each student's timetable and deadline calendar. When a lecturer cancels a class, changes a room or extends a deadline, the change shows up on every affected student's timetable straight away.</aside>
   </section>
 
   <!-- 3 · Justification -->
-  <section class="slide" aria-label="Slide 3: Why do we need it?">
+  <section class="slide" data-section="Justification" aria-label="Slide 3: Why do we need it?">
     <h2 class="r" style="--i:0">Why do we need it?</h2>
     <div class="why">
-      <ul class="rows">
-        <li class="r" style="--i:1"><span class="ico" aria-hidden="true">📱</span>Scattered across 4+ platforms</li>
-        <li class="r" style="--i:2"><span class="ico" aria-hidden="true">🚶</span>Missed cancellations &amp; room changes</li>
-        <li class="r" style="--i:3"><span class="ico" aria-hidden="true">🗓️</span>Announcements ≠ timetable</li>
-        <li class="r" style="--i:4"><span class="ico" aria-hidden="true">🔁</span>Lecturers repeat the same post</li>
-        <li class="r" style="--i:5"><span class="ico" aria-hidden="true">🔍</span>Old messages hard to find</li>
-      </ul>
-      <div class="chips r" style="--i:6" aria-label="WhatsApp, Spectrum, Email, Instagram">
-        <span class="chip">WhatsApp</span>
-        <span class="chip">Spectrum</span>
-        <span class="chip">Email</span>
-        <span class="chip">Instagram</span>
+      <div class="phone-wrap r" style="--d:200ms">
+        <div class="phone" role="img" aria-label="A busy group chat. A message from Dr. Lim saying tomorrow's class is cancelled is buried between casual messages.">
+          <div class="screen">
+            <div class="chat-head"><span class="gname">FCSIT Year 2 (all)</span><span class="gmeta">312 members</span></div>
+            <div class="chat-view">
+              <div class="feed">
+                <div class="msg"><div class="who">Aina · 21:02</div><div class="b">anyone got the tutorial answers?</div></div>
+                <div class="msg"><div class="who">Jun Hao · 21:02</div><div class="b">lol</div></div>
+                <div class="msg"><div class="who">Hafiz · 21:03</div><div class="b">who's going makan</div></div>
+                <div class="msg"><div class="who">Priya · 21:03</div><div class="b">wifi down again</div></div>
+                <div class="msg"><div class="who">Mei Ling · 21:04</div><div class="b stk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 7v9a4 4 0 0 1-8 0V6a2.5 2.5 0 0 1 5 0v9.5a1 1 0 0 1-2 0V8"/></svg>sticker</div></div>
+                <div class="msg"><div class="who">Arif · 21:04</div><div class="b">same</div></div>
+                <div class="msg"><div class="who">Kavin · 21:05</div><div class="b">is the quiz open book or not??</div></div>
+                <div class="msg"><div class="who">Aina · 21:05</div><div class="b">lol</div></div>
+                <div class="msg"><div class="who">Jun Hao · 21:05</div><div class="b">who took my charger at DK1</div></div>
+                <div class="msg lim">
+                  <div class="lim-mark">
+                    <div class="who">Dr. Lim · 21:05</div><div class="b">Tomorrow's class is cancelled.</div>
+                    <svg class="pen" style="--pd:2900ms" viewBox="0 0 400 110" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M60 14C150 2 320 4 378 30C400 44 394 82 316 96C220 110 80 106 28 86C4 74 6 40 50 22C90 8 150 6 200 8"/></svg>
+                  </div>
+                  <!-- PLACEHOLDER — replace with our survey result. -->
+                  <p class="note r" style="--d:3400ms">← missed by 40% of the class</p>
+                </div>
+                <div class="msg"><div class="who">Priya · 21:06</div><div class="b stk"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 7v9a4 4 0 0 1-8 0V6a2.5 2.5 0 0 1 5 0v9.5a1 1 0 0 1-2 0V8"/></svg>sticker</div></div>
+                <div class="msg"><div class="who">Hafiz · 21:07</div><div class="b">same</div></div>
+                <div class="msg"><div class="who">Mei Ling · 21:07</div><div class="b">makan at KK8?</div></div>
+                <div class="msg me"><div class="who">You · 21:08</div><div class="b">ok otw</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
+      <ul class="rows" style="--d:3700ms">
+        <li class="r" style="--i:0"><span class="n">01</span>Scattered across 4+ platforms</li>
+        <li class="r" style="--i:1"><span class="n">02</span>Missed cancellations &amp; room changes</li>
+        <li class="r" style="--i:2"><span class="n">03</span>Announcements ≠ timetable</li>
+        <li class="r" style="--i:3"><span class="n">04</span>Lecturers repeat the same post</li>
+        <li class="r" style="--i:4"><span class="n">05</span>Old messages hard to find</li>
+      </ul>
     </div>
     <aside class="notes">Today, announcements are spread across WhatsApp, Spectrum, email and Instagram, and each student is in more than ten groups. Important messages get buried, so students walk to cancelled classes or work to outdated deadlines. Existing platforms store announcements but never update your timetable. Lecturers post the same notice several times and still get asked 'Is class on today?'. And old messages are almost impossible to search.</aside>
   </section>
 
   <!-- 4 · Objectives -->
-  <section class="slide" aria-label="Slide 4: Objectives">
+  <section class="slide" data-section="Objectives" aria-label="Slide 4: Objectives">
     <h2 class="r" style="--i:0">Objectives</h2>
-    <ol class="obj">
-      <li class="r" style="--i:1"><span class="num">1</span>One platform for all course announcements</li>
-      <li class="r" style="--i:2"><span class="num">2</span>Auto-update timetables</li>
-      <li class="r" style="--i:3"><span class="num">3</span>Auto-sync deadlines</li>
-      <li class="r" style="--i:4"><span class="num">4</span>Notify only when it affects you</li>
-      <li class="r" style="--i:5"><span class="num">5</span>Post once, reach every student</li>
-      <li class="r" style="--i:6"><span class="num">6</span>Searchable announcement archive</li>
+    <ol class="obj" style="--d:250ms">
+      <li><div class="cell r" style="--i:0"><span class="n">01</span><span class="t">One platform for all course announcements</span></div></li>
+      <li><div class="cell r" style="--i:1"><span class="n">02</span><span class="t">Auto-update timetables</span></div></li>
+      <li><div class="cell r" style="--i:2"><span class="n">03</span><span class="t">Auto-sync deadlines</span></div></li>
+      <li><div class="cell r" style="--i:3"><span class="n">04</span><span class="t">Notify only when it affects you</span></div></li>
+      <li><div class="cell r" style="--i:4"><span class="n">05</span><span class="t">Post once, reach every student</span></div></li>
+      <li><div class="cell r" style="--i:5"><span class="n">06</span><span class="t">Searchable announcement archive</span></div></li>
     </ol>
     <aside class="notes">We have six objectives. First, one platform for all course and OCC announcements. Second, timetables that update automatically when classes change. Third, deadlines that sync to students' calendars. Fourth, notifications only when a change affects you. Fifth, lecturers post once and reach every affected student. And sixth, a searchable archive of past announcements.</aside>
   </section>
 
   <!-- 5 · Scope -->
-  <section class="slide" aria-label="Slide 5: Scope">
+  <section class="slide" data-section="Scope" aria-label="Slide 5: Scope">
     <h2 class="r" style="--i:0">Scope</h2>
-    <div class="cards">
-      <article class="card r" style="--i:1">
-        <div class="emo" aria-hidden="true">👩‍🎓</div>
-        <h3>Student</h3>
-        <ul><li>View live timetable</li><li>Deadline calendar</li><li>Search announcements</li></ul>
-      </article>
-      <article class="card r" style="--i:2">
-        <div class="emo" aria-hidden="true">👨‍🏫</div>
-        <h3>Lecturer</h3>
-        <ul><li>Post announcements</li><li>Change classes</li><li>Set &amp; extend deadlines</li></ul>
-      </article>
-      <article class="card r" style="--i:3">
-        <div class="emo" aria-hidden="true">🗂️</div>
-        <h3>Admin</h3>
-        <ul><li>Manage courses &amp; users</li><li>Faculty-wide notices</li></ul>
-      </article>
+    <div class="scope" role="table" aria-label="Functions by user" style="--d:250ms">
+      <div class="h r" role="columnheader" style="--i:0">STUDENT</div><div class="h r" role="columnheader" style="--i:0">LECTURER</div><div class="h r" role="columnheader" style="--i:0">ADMIN</div>
+      <div class="r" role="cell" style="--i:1">View live timetable</div><div class="r" role="cell" style="--i:1">Post announcements</div><div class="r" role="cell" style="--i:1">Manage courses &amp; users</div>
+      <div class="r" role="cell" style="--i:2">Deadline calendar</div><div class="r" role="cell" style="--i:2">Change classes</div><div class="r" role="cell" style="--i:2">Faculty-wide notices</div>
+      <div class="r" role="cell" style="--i:3">Search announcements</div><div class="r" role="cell" style="--i:3">Set &amp; extend deadlines</div><div class="r" role="cell" style="--i:3"></div>
     </div>
-    <div class="pills r" style="--i:4">
-      <span class="pill">🌐 Web app · FCSIT only</span>
-      <span class="pill out">❌ No Spectrum / WhatsApp / email integration</span>
+    <div class="meta" style="--d:600ms">
+      <span class="k r" style="--i:0">PLATFORM</span><span class="v r" style="--i:0">Web app · FCSIT only</span>
+      <span class="k r" style="--i:1">OUT OF SCOPE</span>
+      <span class="v r" style="--i:1">Spectrum / WhatsApp / UM email integration<svg class="pen" style="--pd:1100ms" viewBox="0 0 200 16" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 9C40 6 80 11 120 8C155 6 178 10 197 7"/></svg></span>
     </div>
     <aside class="notes">One Board has three users. Students view their live timetable, deadline calendar and searchable announcements. Lecturers post announcements, change classes and set deadlines. Admin staff manage courses and users and post faculty-wide notices. It's a web app for FCSIT only. Integration with Spectrum, WhatsApp and UM email is out of scope.</aside>
   </section>
 
   <!-- 6 · Closing -->
-  <section class="slide s-close" aria-label="Slide 6: Closing">
-    <p class="big r" style="--i:0"><span class="muted">Spectrum stores announcements.</span></p>
-    <p class="big r" style="--i:2">One Board puts them in <span class="accent underline">your day</span>.</p>
-    <p class="thanks r" style="--i:4">Thank you · SyncWave Solutions</p>
+  <section class="slide s-close" data-section="Closing" aria-label="Slide 6: Closing">
+    <div class="close-lines">
+      <p class="l1 r" style="--i:0">Spectrum stores announcements.</p>
+      <p class="l2 r" style="--d:500ms">One Board puts them in <span class="key">your day<svg class="pen" style="--pd:1100ms; --pdur:700ms; --sw:4" viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M4 16C70 10 150 18 220 11C255 8 280 9 296 6"/></svg></span>.</p>
+    </div>
+    <p class="foot r" style="--d:1500ms">THANK YOU · SYNCWAVE SOLUTIONS</p>
     <aside class="notes">In short, Spectrum stores announcements; One Board puts them in your day. We'd like your approval to proceed. Thank you.</aside>
   </section>
 
 </main>
 
 <div class="timer" id="timer" hidden aria-live="off">3:00</div>
-<div class="counter" id="counter" aria-hidden="true">1 / 6</div>
 <div class="progress" aria-hidden="true"><i id="bar"></i></div>
 <div class="notes-panel" id="notes" aria-hidden="true">
   <div class="nh" id="notesHead">Notes</div>
@@ -437,10 +496,12 @@
 
 <script>
 (function () {
+  var HEADER_LEFT = 'ONE BOARD — PROPOSAL';
+  var HEADER_RIGHT = 'SYNCWAVE SOLUTIONS · OCC 1';
+
   var deck = document.getElementById('deck');
   var slides = Array.prototype.slice.call(deck.querySelectorAll('.slide'));
   var total = slides.length;
-  var counter = document.getElementById('counter');
   var bar = document.getElementById('bar');
   var notes = document.getElementById('notes');
   var notesHead = document.getElementById('notesHead');
@@ -448,13 +509,43 @@
   var timer = document.getElementById('timer');
   var cur = 0;
 
-  // Scale the 1920x1080 canvas to fit the window (skipped in fluid phone mode).
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  // Document header strip and page number on every slide.
+  slides.forEach(function (s, k) {
+    var head = document.createElement('header');
+    head.className = 'doc-head';
+    head.setAttribute('aria-hidden', 'true');
+    [HEADER_LEFT, pad(k + 1) + ' / ' + s.dataset.section, HEADER_RIGHT].forEach(function (t) {
+      var span = document.createElement('span');
+      span.textContent = t;
+      head.appendChild(span);
+    });
+    s.insertBefore(head, s.firstChild);
+    var pg = document.createElement('div');
+    pg.className = 'pg';
+    pg.setAttribute('aria-hidden', 'true');
+    pg.textContent = pad(k + 1) + '/' + pad(total);
+    s.appendChild(pg);
+  });
+
+  // The chat rests scrolled to the latest message; the scroll starts this far down.
+  function measureChat() {
+    Array.prototype.forEach.call(document.querySelectorAll('.chat-view'), function (view) {
+      var feed = view.querySelector('.feed');
+      var from = Math.max(0, feed.offsetHeight - view.clientHeight);
+      feed.style.setProperty('--chat-from', from + 'px');
+    });
+  }
+
+  // Scale the 1920x1080 sheet to fit the window (skipped in fluid phone mode).
   function fit() {
     var w = window.innerWidth || document.documentElement.clientWidth;
     var h = window.innerHeight || document.documentElement.clientHeight;
     var s = Math.min(w / 1920, h / 1080);
     if (!s) { requestAnimationFrame(fit); return; } // window not laid out yet
     deck.style.setProperty('--scale', s);
+    measureChat();
   }
 
   function fromHash() {
@@ -467,14 +558,12 @@
     cur = i;
     slides.forEach(function (s, k) {
       s.classList.toggle('active', k === i);
-      s.classList.toggle('past', k < i);
       s.setAttribute('aria-hidden', k === i ? 'false' : 'true');
       if (k === i) s.scrollTop = 0;
     });
-    counter.textContent = (i + 1) + ' / ' + total;
     bar.style.width = ((i + 1) / total * 100) + '%';
     var n = slides[i].querySelector('.notes');
-    notesHead.textContent = 'Notes · ' + (i + 1) + ' / ' + total;
+    notesHead.textContent = 'Notes · ' + pad(i + 1) + '/' + pad(total);
     notesText.textContent = n ? n.textContent : '';
     var h = '#' + (i + 1);
     if (location.hash !== h) {
@@ -563,6 +652,7 @@
   if (window.ResizeObserver) new ResizeObserver(fit).observe(document.documentElement);
   document.addEventListener('fullscreenchange', fit);
   window.addEventListener('hashchange', function () { go(fromHash()); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(measureChat);
 
   fit();
   go(fromHash());
